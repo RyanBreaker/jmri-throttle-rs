@@ -1,8 +1,9 @@
-use crate::Direction::Forward;
+mod message;
+
+use crate::message::WiMessage;
 use futures::StreamExt;
 use log::Level::Debug;
 use log::{debug, error, log_enabled};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -109,33 +110,4 @@ async fn handle_message(message: Message, id: Uuid) {
         }
     };
     debug!("Received message(uid={id}, message={message:?})")
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-enum Direction {
-    Reverse = 0,
-    Forward = 1,
-}
-
-impl Direction {
-    pub fn as_num(&self) -> usize {
-        match self {
-            Direction::Reverse => 0,
-            Forward => 1,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-enum WiMessageType {
-    AddEngine(String),
-    RemoveEngine(String),
-    Throttle(usize),
-    Function(usize),
-    Direction(Direction),
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct WiMessage {
-    message_type: WiMessageType,
 }
