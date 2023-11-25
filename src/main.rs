@@ -21,7 +21,7 @@ pub struct Client {
     pub id: Uuid,
 }
 
-type Clients = Arc<RwLock<HashMap<Uuid, mpsc::UnboundedSender<Message>>>>;
+type Clients = Arc<RwLock<HashMap<Uuid, UnboundedSender<Message>>>>;
 
 const SERVER: &str = "localhost:12090";
 const THROTTLE_NAME: &str = "TestThrottleRs";
@@ -61,7 +61,7 @@ async fn jmri_conn(
 
     // Setup message to JMRI
     jmri_tx
-        .send(format!("HU{my_id}\r\nN{THROTTLE_NAME}\r\n"))
+        .send(format!("HU{my_id}\nN{THROTTLE_NAME}\n"))
         .await
         .unwrap();
 
@@ -92,6 +92,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             error!("Error on jmri_conn: {e}");
         }
     });
+
     // Lets us know we're connected to JMRI and can continue
     jmri_notify.notified().await;
 
