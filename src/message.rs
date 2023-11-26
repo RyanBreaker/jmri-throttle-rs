@@ -6,15 +6,6 @@ pub enum Direction {
     Forward = 1,
 }
 
-impl Direction {
-    pub fn as_num(&self) -> usize {
-        match self {
-            Direction::Reverse => 0,
-            Direction::Forward => 1,
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug)]
 pub enum WiMessageType {
     AddEngine(String),

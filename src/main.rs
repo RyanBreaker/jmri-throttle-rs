@@ -1,6 +1,7 @@
 mod message;
 
 use crate::message::WiMessage;
+use futures::future::join;
 use futures::{SinkExt, StreamExt};
 use log::Level::Debug;
 use log::{debug, error, info, log_enabled};
@@ -73,7 +74,7 @@ async fn jmri_conn(
         }
     });
 
-    let _ = futures::future::join(read_handle, write_handle).await;
+    let _ = join(read_handle, write_handle).await;
 
     Ok(())
 }
@@ -87,7 +88,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let jmri_notify = Arc::new(Notify::new());
     let jmri_up2 = jmri_notify.clone();
-    let _jmri_handle = tokio::spawn(async move {
+    let jmri_handle = tokio::spawn(async move {
         if let Err(e) = jmri_conn(jmri_up2, jmri_tx, jmri_rx).await {
             error!("Error on jmri_conn: {e}");
         }
@@ -113,7 +114,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let routes = health.or(ws);
 
-    warp::serve(routes).run(([0, 0, 0, 0], 5000)).await;
+    let warp_handle = warp::serve(routes).run(([0, 0, 0, 0], 5000));
+
+    let _ = join(jmri_handle, warp_handle).await;
 
     Ok(())
 }
@@ -122,32 +125,56 @@ async fn connected(ws: WebSocket, clients: Clients) {
     let id = Uuid::new_v4();
     debug!("New id: {id}");
 
-    let (_ws_tx, mut ws_rx) = ws.split();
-    let (tx, _rx) = mpsc::unbounded_channel::<Message>();
-    // let mut rx = UnboundedReceiverStream::new(rx);
+    let (mut ws_tx, mut ws_rx) = ws.split();
+    let (client_tx, client_rx) = mpsc::unbounded_channel::<Message>();
+    let mut client_rx = UnboundedReceiverStream::new(client_rx);
 
-    clients.write().await.insert(id, tx);
+    client_tx.send(Message::text("Test123")).unwrap();
+    clients.write().await.insert(id, client_tx);
     if log_enabled!(Debug) {
         let clients = clients.read().await;
         debug!("Number of clients: {}", clients.len());
         debug!("Current clients: {:?}", clients.keys());
+
     }
 
-    while let Some(result) = ws_rx.next().await {
-        let message = match result {
-            Ok(message) => message,
-            Err(e) => {
-                error!("Websocket error(uid={id}, e={e})");
-                break;
+    let receive_handle = tokio::spawn(async move {
+        while let Some(result) = ws_rx.next().await {
+            let message = match result {
+                Ok(message) => message,
+                Err(e) => {
+                    error!("Websocket error(uid={id}, e={e})");
+                    break;
+                }
+            };
+            // If we were sent a close, return to start cleanup at the end of this fn
+            if message.is_close() {
+                return;
             }
-        };
-        handle_message(message, id).await;
-    }
+            handle_message(id, message).await;
+        }
+    });
+
+    let send_handle = tokio::spawn(async move {
+        while let Some(message) = client_rx.next().await {
+            if let Err(e) = ws_tx.send(message).await {
+                error!("Error sending to client '{id}': {e}");
+            };
+        }
+    });
+
+    receive_handle.await.unwrap();
+    drop(send_handle);
 
     clients.write().await.remove(&id);
+    debug!("Removed client '{id}'");
 }
 
-async fn handle_message(message: Message, id: Uuid) {
+async fn handle_message(id: Uuid, message: Message) {
+    if !message.is_text() {
+        debug!("Text not received to '{id}': {message:?}");
+        return;
+    }
     let message = message.to_str().unwrap();
     let message = match serde_json::from_str::<WiMessage>(message) {
         Ok(message) => message,
