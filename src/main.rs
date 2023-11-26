@@ -5,6 +5,7 @@ use futures::future::join;
 use futures::{SinkExt, StreamExt};
 use log::Level::Debug;
 use log::{debug, error, info, log_enabled};
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
@@ -18,11 +19,9 @@ use warp::http::StatusCode;
 use warp::ws::{Message, WebSocket};
 use warp::Filter;
 
-pub struct Client {
-    pub id: Uuid,
-}
-
 type Clients = Arc<RwLock<HashMap<Uuid, UnboundedSender<Message>>>>;
+
+static CLIENTS: Lazy<Clients> = Lazy::new(Clients::default);
 
 const SERVER: &str = "localhost:12090";
 const THROTTLE_NAME: &str = "TestThrottleRs";
@@ -101,44 +100,42 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .and(warp::get())
         .map(|| warp::reply::with_status("Healthy", StatusCode::OK));
 
-    let clients = Clients::default();
-    let clients = warp::any().map(move || clients.clone());
-
     let ws =
         warp::path("ws")
             .and(warp::ws())
-            .and(clients)
-            .map(|ws: warp::ws::Ws, clients: Clients| {
-                ws.on_upgrade(move |socket| connected(socket, clients))
+            .map(|ws: warp::ws::Ws| {
+                ws.on_upgrade(connected)
             });
 
     let routes = health.or(ws);
 
-    let warp_handle = warp::serve(routes).run(([0, 0, 0, 0], 5000));
+    let warp_handle = warp::serve(routes).run(([0, 0, 0, 0], 6000));
 
     let _ = join(jmri_handle, warp_handle).await;
 
     Ok(())
 }
 
-async fn connected(ws: WebSocket, clients: Clients) {
+async fn connected(ws: WebSocket) {
     let id = Uuid::new_v4();
     debug!("New id: {id}");
 
+    // WebSocket streams
     let (mut ws_tx, mut ws_rx) = ws.split();
-    let (client_tx, client_rx) = mpsc::unbounded_channel::<Message>();
-    let mut client_rx = UnboundedReceiverStream::new(client_rx);
 
-    client_tx.send(Message::text("Test123")).unwrap();
-    clients.write().await.insert(id, client_tx);
+    // Client channels
+    let (to_client_tx, to_client_rx) = mpsc::unbounded_channel::<Message>();
+    let mut to_client_rx = UnboundedReceiverStream::new(to_client_rx);
+
+    to_client_tx.send(Message::text("Test123")).unwrap();
+    CLIENTS.write().await.insert(id, to_client_tx);
     if log_enabled!(Debug) {
-        let clients = clients.read().await;
+        let clients = CLIENTS.read().await;
         debug!("Number of clients: {}", clients.len());
         debug!("Current clients: {:?}", clients.keys());
-
     }
 
-    let receive_handle = tokio::spawn(async move {
+    let client_receive_handle = tokio::spawn(async move {
         while let Some(result) = ws_rx.next().await {
             let message = match result {
                 Ok(message) => message,
@@ -151,26 +148,26 @@ async fn connected(ws: WebSocket, clients: Clients) {
             if message.is_close() {
                 return;
             }
-            handle_message(id, message).await;
+            handle_message(id, message);
         }
     });
 
-    let send_handle = tokio::spawn(async move {
-        while let Some(message) = client_rx.next().await {
+    let client_send_handle = tokio::spawn(async move {
+        while let Some(message) = to_client_rx.next().await {
             if let Err(e) = ws_tx.send(message).await {
                 error!("Error sending to client '{id}': {e}");
             };
         }
     });
 
-    receive_handle.await.unwrap();
-    drop(send_handle);
+    client_receive_handle.await.unwrap();
+    drop(client_send_handle);
 
-    clients.write().await.remove(&id);
+    CLIENTS.write().await.remove(&id);
     debug!("Removed client '{id}'");
 }
 
-async fn handle_message(id: Uuid, message: Message) {
+fn handle_message(id: Uuid, message: Message) {
     if !message.is_text() {
         debug!("Text not received to '{id}': {message:?}");
         return;

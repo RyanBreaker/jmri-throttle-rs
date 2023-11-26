@@ -18,4 +18,5 @@ pub enum WiMessageType {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WiMessage {
     message_type: WiMessageType,
+    address: u16,
 }

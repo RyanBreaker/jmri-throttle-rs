@@ -489,6 +489,7 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "log",
+ "once_cell",
  "pretty_env_logger",
  "serde",
  "serde_json",
