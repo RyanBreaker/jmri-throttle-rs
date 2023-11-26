@@ -1,25 +1,24 @@
+mod client;
 mod message;
 
+use crate::client::{Client, Clients};
 use crate::message::WiMessage;
 use futures::future::join;
 use futures::{SinkExt, StreamExt};
 use log::Level::Debug;
 use log::{debug, error, info, log_enabled};
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::{mpsc, Notify, RwLock};
+use tokio::sync::{mpsc, Notify};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::codec::{Framed, LinesCodec};
 use uuid::Uuid;
 use warp::http::StatusCode;
 use warp::ws::{Message, WebSocket};
 use warp::Filter;
-
-type Clients = Arc<RwLock<HashMap<Uuid, UnboundedSender<Message>>>>;
 
 static CLIENTS: Lazy<Clients> = Lazy::new(Clients::default);
 
@@ -100,12 +99,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .and(warp::get())
         .map(|| warp::reply::with_status("Healthy", StatusCode::OK));
 
-    let ws =
-        warp::path("ws")
-            .and(warp::ws())
-            .map(|ws: warp::ws::Ws| {
-                ws.on_upgrade(connected)
-            });
+    let ws = warp::path("ws")
+        .and(warp::ws())
+        .map(|ws: warp::ws::Ws| ws.on_upgrade(handle_connection));
 
     let routes = health.or(ws);
 
@@ -116,7 +112,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn connected(ws: WebSocket) {
+async fn handle_connection(ws: WebSocket) {
     let id = Uuid::new_v4();
     debug!("New id: {id}");
 
@@ -128,7 +124,11 @@ async fn connected(ws: WebSocket) {
     let mut to_client_rx = UnboundedReceiverStream::new(to_client_rx);
 
     to_client_tx.send(Message::text("Test123")).unwrap();
-    CLIENTS.write().await.insert(id, to_client_tx);
+    CLIENTS
+        .write()
+        .await
+        .insert(id, Client::new(id, to_client_tx));
+
     if log_enabled!(Debug) {
         let clients = CLIENTS.read().await;
         debug!("Number of clients: {}", clients.len());
@@ -144,11 +144,11 @@ async fn connected(ws: WebSocket) {
                     break;
                 }
             };
-            // If we were sent a close, return to start cleanup at the end of this fn
+            // If we were sent a close, return to start cleanup at the end of handle_connection
             if message.is_close() {
                 return;
             }
-            handle_message(id, message);
+            handle_message(id, message).await;
         }
     });
 
@@ -167,7 +167,7 @@ async fn connected(ws: WebSocket) {
     debug!("Removed client '{id}'");
 }
 
-fn handle_message(id: Uuid, message: Message) {
+async fn handle_message(id: Uuid, message: Message) {
     if !message.is_text() {
         debug!("Text not received to '{id}': {message:?}");
         return;
@@ -180,5 +180,13 @@ fn handle_message(id: Uuid, message: Message) {
             return;
         }
     };
-    debug!("Received message(uid={id}, message={message:?})")
+    debug!("Received message(uid={id}, message={message:?})");
+
+    let _client = match CLIENTS.read().await.get(&id) {
+        None => {
+            error!("Unable to find client '{id}` from CLIENTS");
+            return;
+        }
+        Some(client) => client
+    };
 }
