@@ -1,3 +1,7 @@
+mod handle_message;
+
+pub use handle_message::handle_message;
+
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
@@ -40,7 +44,8 @@ impl Display for WiMessageType {
             WiMessageType::FunctionPressed(func) => format!("F1{func}"),
             WiMessageType::FunctionReleased(func) => format!("F0{func}"),
             WiMessageType::Direction(dir) => dir.to_string(),
-            _ => String::new(),
+            WiMessageType::AddAddress => '+'.into(),
+            WiMessageType::RemoveAddress => '-'.into(),
         };
 
         f.write_str(&s)
