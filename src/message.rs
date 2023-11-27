@@ -100,6 +100,11 @@ mod tests {
             address: 5,
         };
         assert_eq!(format!("{}", wi_message), "MT+L5<;>");
+        let wi_message = WiMessage {
+            message_type: WiMessageType::FunctionReleased(10),
+            address: 6,
+        };
+        assert_eq!(format!("{}", wi_message), "MTAL6<;>F010");
     }
 
     #[test]
