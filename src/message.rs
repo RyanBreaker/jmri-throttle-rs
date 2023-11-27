@@ -69,3 +69,43 @@ impl Display for WiMessage {
         f.write_str(&s)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn direction_display() {
+        assert_eq!(format!("{}", Direction::Reverse), "R0");
+        assert_eq!(format!("{}", Direction::Forward), "R1");
+    }
+
+    #[test]
+    fn wi_message_type_display() {
+        assert_eq!(format!("{}", WiMessageType::AddAddress), "+");
+        assert_eq!(format!("{}", WiMessageType::RemoveAddress), "-");
+        assert_eq!(format!("{}", WiMessageType::Velocity(5)), "V5");
+        assert_eq!(format!("{}", WiMessageType::FunctionPressed(5)), "F15");
+        assert_eq!(format!("{}", WiMessageType::FunctionReleased(5)), "F05");
+        assert_eq!(
+            format!("{}", WiMessageType::Direction(Direction::Reverse)),
+            "R0"
+        );
+    }
+
+    #[test]
+    fn wi_message_display() {
+        let wi_message = WiMessage {
+            message_type: WiMessageType::AddAddress,
+            address: 5,
+        };
+        assert_eq!(format!("{}", wi_message), "MT+L5<;>");
+    }
+
+    #[test]
+    fn wi_message_type_is_address() {
+        assert!(WiMessageType::AddAddress.is_address());
+        assert!(WiMessageType::RemoveAddress.is_address());
+        assert!(!WiMessageType::Velocity(5).is_address());
+    }
+}
