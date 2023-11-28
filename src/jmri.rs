@@ -36,8 +36,15 @@ pub async fn jmri_conn(notify: Arc<Notify>) -> Result<(), Box<dyn Error>> {
                     break;
                 }
             };
-            debug!("Sending message to JMRI: {line}");
-            if let Err(e) = FROM_JMRI.tx.read().await.send(line) {
+            let line = line.trim();
+
+            // Skip empty lines
+            if line.is_empty() {
+                continue;
+            }
+
+            debug!("Message from JMRI (len={}): {line}", line.len());
+            if let Err(e) = FROM_JMRI.tx.read().await.send(line.into()) {
                 error!("Error sending message from JMRI: {e}");
             }
         }
