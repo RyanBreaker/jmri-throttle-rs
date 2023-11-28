@@ -19,14 +19,5 @@ pub async fn handle_message(id: Uuid, message: Message) {
     };
     debug!("Received message(uid={id}, message={message:?})");
 
-    // let client = match CLIENTS.read().await.get(&id) {
-    //     None => {
-    //         error!("Unable to find client '{id}` from CLIENTS");
-    //         return;
-    //     }
-    //     Some(client) => client,
-    // };
-
-    let jmri_chan = TO_JMRI.tx.read().await;
-    jmri_chan.send(message.to_string()).unwrap();
+    TO_JMRI.tx.read().await.send(message.to_string()).unwrap();
 }

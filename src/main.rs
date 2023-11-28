@@ -1,3 +1,4 @@
+#[forbid(unsafe_code)]
 mod client;
 mod jmri;
 mod message;
@@ -21,27 +22,26 @@ struct JmriChannel {
     pub rx: RwLock<UnboundedReceiverStream<String>>,
 }
 
-static TO_JMRI: Lazy<JmriChannel> = Lazy::new(|| {
-    let (tx, rx) = mpsc::unbounded_channel::<String>();
-    let tx = RwLock::new(tx);
-    let rx = RwLock::new(UnboundedReceiverStream::new(rx));
-    JmriChannel { tx, rx }
-});
+static TO_JMRI: Lazy<JmriChannel> = make_chan();
+static FROM_JMRI: Lazy<JmriChannel> = make_chan();
 
-pub const SERVER: &str = "localhost:12090";
-pub const THROTTLE_NAME: &str = "TestThrottleRs";
+const fn make_chan() -> Lazy<JmriChannel> {
+    Lazy::new(|| {
+        let (tx, rx) = mpsc::unbounded_channel::<String>();
+        let tx = RwLock::new(tx);
+        let rx = RwLock::new(UnboundedReceiverStream::new(rx));
+        JmriChannel { tx, rx }
+    })
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     pretty_env_logger::init();
 
-    let (jmri_tx, jmri_rx) = mpsc::unbounded_channel::<String>();
-    let jmri_rx = UnboundedReceiverStream::new(jmri_rx);
-
     let jmri_notify = Arc::new(Notify::new());
     let jmri_up2 = jmri_notify.clone();
     let jmri_handle = tokio::spawn(async move {
-        if let Err(e) = jmri_conn(jmri_up2, jmri_tx, jmri_rx).await {
+        if let Err(e) = jmri_conn(jmri_up2).await {
             error!("Error on jmri_conn: {e}");
         }
     });

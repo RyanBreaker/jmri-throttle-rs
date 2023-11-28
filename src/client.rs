@@ -1,6 +1,7 @@
+use crate::message::Address;
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Arc;
-use once_cell::sync::Lazy;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -13,7 +14,7 @@ pub static CLIENTS: Lazy<Clients> = Lazy::new(Clients::default);
 #[derive(Debug)]
 pub struct Client {
     pub id: Uuid,
-    pub addresses: Vec<u16>,
+    pub addresses: Vec<Address>,
     pub sender: UnboundedSender<Message>,
 }
 

@@ -1,22 +1,16 @@
-use crate::TO_JMRI;
-use futures::future::join3;
+use crate::{FROM_JMRI, TO_JMRI};
+use futures::future::join;
 use futures::{SinkExt, StreamExt};
 use log::{debug, error, info};
 use std::env;
 use std::error::Error;
 use std::sync::Arc;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::Notify;
-use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::codec::{Framed, LinesCodec};
 use uuid::Uuid;
 
-pub async fn jmri_conn(
-    notify: Arc<Notify>,
-    tx: UnboundedSender<String>,
-    mut rx: UnboundedReceiverStream<String>,
-) -> Result<(), Box<dyn Error>> {
+pub async fn jmri_conn(notify: Arc<Notify>) -> Result<(), Box<dyn Error>> {
     let my_id = Uuid::new_v4();
     debug!("Server's ID: {my_id}");
 
@@ -42,7 +36,8 @@ pub async fn jmri_conn(
                     break;
                 }
             };
-            if let Err(e) = tx.send(line) {
+            debug!("Sending message to JMRI: {line}");
+            if let Err(e) = FROM_JMRI.tx.read().await.send(line) {
                 error!("Error sending message from JMRI: {e}");
             }
         }
@@ -54,23 +49,14 @@ pub async fn jmri_conn(
         .await
         .unwrap();
 
-    let write_handle2 = tokio::spawn(async move {
+    let write_handle = tokio::spawn(async move {
         let mut rx = TO_JMRI.rx.write().await;
         while let Some(line) = rx.next().await {
             debug!("Message to send to JMRI: {line}");
         }
     });
 
-    // TODO: figure out this one
-    let write_handle = tokio::spawn(async move {
-        while let Some(line) = rx.next().await {
-            if let Err(e) = jmri_tx.send(line).await {
-                error!("Error sending message to JMRI: {e}");
-            }
-        }
-    });
-
-    let _ = join3(read_handle, write_handle, write_handle2).await;
+    let _ = join(read_handle, write_handle).await;
 
     Ok(())
 }
