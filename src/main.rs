@@ -39,12 +39,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     pretty_env_logger::init();
 
     let jmri_notify = Arc::new(Notify::new());
-    let jmri_up2 = jmri_notify.clone();
-    let jmri_handle = tokio::spawn(async move {
-        if let Err(e) = jmri_conn(jmri_up2).await {
-            error!("Error on jmri_conn: {e}");
-        }
-    });
+    let jmri_handle = {
+        let jmri_notify = jmri_notify.clone();
+        tokio::spawn(async move {
+            if let Err(e) = jmri_conn(jmri_notify).await {
+                error!("Error on jmri_conn: {e}");
+            }
+        })
+    };
 
     // Lets us know we're connected to JMRI and can continue
     jmri_notify.notified().await;

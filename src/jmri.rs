@@ -1,14 +1,18 @@
 use crate::{FROM_JMRI, TO_JMRI};
-use futures::future::join;
+use futures::future::join3;
 use futures::{SinkExt, StreamExt};
 use log::{debug, error, info};
 use std::env;
 use std::error::Error;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::sync::Notify;
+use tokio::time::sleep;
 use tokio_util::codec::{Framed, LinesCodec};
 use uuid::Uuid;
+
+const NEWLINE: char = '\n';
 
 pub async fn jmri_conn(notify: Arc<Notify>) -> Result<(), Box<dyn Error>> {
     let my_id = Uuid::new_v4();
@@ -26,6 +30,13 @@ pub async fn jmri_conn(notify: Arc<Notify>) -> Result<(), Box<dyn Error>> {
     // Notify we're connected and main init can continue
     info!("Successfully connected to JMRI at: {jmri_server}");
     notify.notify_one();
+
+    let heartbeat_handle = tokio::spawn(async move {
+        if let Err(e) = TO_JMRI.tx.read().await.send("*".into()) {
+            error!("Error sending heartbeat to JMRI: {e}");
+        }
+        sleep(Duration::from_secs(3)).await;
+    });
 
     let read_handle = tokio::spawn(async move {
         while let Some(line) = jmri_rx.next().await {
@@ -52,18 +63,21 @@ pub async fn jmri_conn(notify: Arc<Notify>) -> Result<(), Box<dyn Error>> {
 
     // Initial setup message to JMRI
     jmri_tx
-        .send(format!("HU{my_id}\nN{throttle_name}\n"))
+        .send(format!("HU{my_id}{NEWLINE}N{throttle_name}"))
         .await
         .unwrap();
 
     let write_handle = tokio::spawn(async move {
-        let mut rx = TO_JMRI.rx.write().await;
-        while let Some(line) = rx.next().await {
-            debug!("Message to send to JMRI: {line}");
+        while let Some(line) = TO_JMRI.rx.write().await.next().await {
+            if line.is_empty() {
+                continue;
+            }
+            debug!("Sending message to JMRI: {line}");
+            jmri_tx.send(line).await.unwrap();
         }
     });
 
-    let _ = join(read_handle, write_handle).await;
+    let _ = join3(read_handle, write_handle, heartbeat_handle).await;
 
     Ok(())
 }

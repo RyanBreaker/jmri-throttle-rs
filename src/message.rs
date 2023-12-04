@@ -29,6 +29,7 @@ pub enum WiMessageType {
     FunctionPressed(Function),
     FunctionReleased(Function),
     Direction(Direction),
+    Time(i64),
 }
 
 impl WiMessageType {
@@ -38,14 +39,17 @@ impl WiMessageType {
 }
 
 impl Display for WiMessageType {
+    // Formatting for outbound messages to JMRI
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        use WiMessageType::*;
         let s = match self {
-            WiMessageType::Velocity(throttle) => format!("V{throttle}"),
-            WiMessageType::FunctionPressed(func) => format!("F1{func}"),
-            WiMessageType::FunctionReleased(func) => format!("F0{func}"),
-            WiMessageType::Direction(dir) => dir.to_string(),
-            WiMessageType::AddAddress => '+'.into(),
-            WiMessageType::RemoveAddress => '-'.into(),
+            Velocity(throttle) => format!("V{throttle}"),
+            FunctionPressed(func) => format!("F1{func}"),
+            FunctionReleased(func) => format!("F0{func}"),
+            Direction(dir) => dir.to_string(),
+            AddAddress => '+'.into(),
+            RemoveAddress => '-'.into(),
+            _ => String::new(),
         };
 
         f.write_str(&s)
@@ -61,7 +65,7 @@ pub struct WiMessage {
 impl Display for WiMessage {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let s = if self.message_type.is_address() {
-            format!("MT{}L{}<;>", self.message_type, self.address)
+            format!("MT{}L{}<;>L{}", self.message_type, self.address, self.address)
         } else {
             format!("MTAL{}<;>{}", self.address, self.message_type)
         };
@@ -99,7 +103,7 @@ mod tests {
             message_type: WiMessageType::AddAddress,
             address: 5,
         };
-        assert_eq!(format!("{}", wi_message), "MT+L5<;>");
+        assert_eq!(format!("{}", wi_message), "MT+L5<;>L5");
         let wi_message = WiMessage {
             message_type: WiMessageType::FunctionReleased(10),
             address: 6,
