@@ -31,6 +31,7 @@ pub async fn jmri_conn(notify: Arc<Notify>) -> Result<(), Box<dyn Error>> {
     info!("Successfully connected to JMRI at: {jmri_server}");
     notify.notify_one();
 
+    // TODO: figure out if this is even working...
     let heartbeat_handle = tokio::spawn(async move {
         if let Err(e) = TO_JMRI.tx.read().await.send("*".into()) {
             error!("Error sending heartbeat to JMRI: {e}");

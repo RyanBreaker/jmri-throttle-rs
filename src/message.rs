@@ -4,6 +4,7 @@ pub use handle_message::handle_message;
 
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
+use std::str::FromStr;
 
 pub type Address = i16;
 pub type Velocity = i16;
@@ -21,20 +22,64 @@ impl Display for Direction {
     }
 }
 
+impl FromStr for Direction {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let dir = match s {
+            "0" => Direction::Reverse,
+            _ => Direction::Forward,
+        };
+        Ok(dir)
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub enum WiMessageType {
     AddAddress,
     RemoveAddress,
     Velocity(Velocity),
     FunctionPressed(Function),
-    FunctionReleased(Function),
+    FunctionReleased(Function), // TODO: Maybe remove FunctionReleased as FunctionPressed always toggles in JMRI
     Direction(Direction),
     Time(i64),
 }
 
 impl WiMessageType {
     pub fn is_address(&self) -> bool {
-        matches!(self, Self::AddAddress | Self::RemoveAddress)
+        matches!(
+            self,
+            WiMessageType::AddAddress | WiMessageType::RemoveAddress
+        )
+    }
+}
+
+impl FromStr for WiMessageType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut chars = s.chars();
+        let first = chars.next().unwrap();
+        let nums: String = chars.filter(|c| c.is_numeric()).collect();
+
+        match first {
+            'V' => Ok(WiMessageType::Velocity(nums.parse().unwrap())),
+            'F' => {
+                let mut nums = nums.chars();
+                let is_pressed = nums.next().unwrap_or('0') == '1';
+                let nums = nums.collect::<String>().parse().unwrap();
+                if is_pressed {
+                    Ok(WiMessageType::FunctionPressed(nums))
+                } else {
+                    Ok(WiMessageType::FunctionReleased(nums))
+                }
+            }
+            'R' => {
+                let dir = Direction::from_str(&nums).unwrap();
+                Ok(WiMessageType::Direction(dir))
+            }
+            _ => Err("No action found".into()),
+        }
     }
 }
 
@@ -65,12 +110,55 @@ pub struct WiMessage {
 impl Display for WiMessage {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let s = if self.message_type.is_address() {
-            format!("MT{}L{}<;>L{}", self.message_type, self.address, self.address)
+            format!(
+                "MT{}L{}<;>L{}",
+                self.message_type, self.address, self.address
+            )
         } else {
             format!("MTAL{}<;>{}", self.address, self.message_type)
         };
 
         f.write_str(&s)
+    }
+}
+
+impl FromStr for WiMessage {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut split = s.split("<;>");
+        let address = split.next().unwrap();
+
+        let address_action = if address.contains('-') {
+            Some(WiMessageType::RemoveAddress)
+        } else if address.contains('+') {
+            Some(WiMessageType::AddAddress)
+        } else {
+            None
+        };
+
+        let address: String = address.chars().filter(|c| c.is_numeric()).collect();
+        let address: Address = address
+            .parse()
+            .map_err(|e| format!("Couldn't translate address: {e}"))?;
+
+        if let Some(message_type) = address_action {
+            return Ok(WiMessage {
+                message_type,
+                address,
+            });
+        };
+
+        let action = split.next();
+        if action.is_none() {
+            return Err(format!("Empty action: {s}"));
+        }
+
+        let message_type = WiMessageType::from_str(action.unwrap())?;
+        Ok(WiMessage {
+            message_type,
+            address,
+        })
     }
 }
 
