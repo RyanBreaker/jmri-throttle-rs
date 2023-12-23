@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let routes = health.or(ws);
 
-    let warp_handle = warp::serve(routes).run(([0, 0, 0, 0], 6000));
+    let warp_handle = warp::serve(routes).run(([0, 0, 0, 0], 4000));
 
     let _ = join(jmri_handle, warp_handle).await;
 

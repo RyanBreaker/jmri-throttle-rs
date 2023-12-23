@@ -99,8 +99,8 @@ impl Display for WiMessageType {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WiMessage {
-    message_type: WiMessageType,
-    address: Address,
+    pub message_type: WiMessageType,
+    pub address: Address,
 }
 
 impl Display for WiMessage {

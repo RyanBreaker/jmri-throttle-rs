@@ -54,7 +54,10 @@ pub async fn handle_connection(ws: WebSocket) {
         while let Some(message) = FROM_JMRI.rx.write().await.next().await {
             if let Ok(message) = WiMessage::from_str(&message) {
                 let message = serde_json::to_string(&message).unwrap();
-                ws_tx.send(Message::text(message)).await.unwrap();
+                ws_tx.send(Message::text(message)).await.map_err(|e| {
+                    error!("Error sending message: {e}");
+                    e
+                }).ok();
             } else {
                 info!("Couldn't parse message: {message}");
             }

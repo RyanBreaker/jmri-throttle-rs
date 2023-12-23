@@ -1,16 +1,99 @@
-use eframe::egui::Context;
+use eframe::egui::{Context, Vec2, Widget};
 use eframe::{egui, Frame};
+use ewebsock::{WsEvent, WsMessage, WsReceiver, WsSender};
+use jmri_throttle_rs::message::{Function, Velocity, WiMessage, WiMessageType};
+use log::{error, info, warn};
+use std::collections::HashSet;
+
+struct WsConnection {
+    ws_sender: WsSender,
+    ws_receiver: WsReceiver,
+}
 
 pub struct App {
-    label: String,
-    value: f32,
+    url: String,
+    value: Velocity,
+    functions: HashSet<Function>,
+    connection: Option<WsConnection>,
+}
+
+impl App {
+    fn connect(&mut self, ctx: &Context) {
+        let ctx = ctx.clone();
+        let wakeup = move || ctx.request_repaint();
+        match ewebsock::connect_with_wakeup("ws://localhost:4000/ws", wakeup) {
+            Ok((ws_sender, ws_receiver)) => {
+                info!("Connected!");
+                self.connection = Some(WsConnection {
+                    ws_sender,
+                    ws_receiver,
+                })
+            }
+            Err(e) => {
+                error!("Failed to connect to {}: {e}", self.url)
+            }
+        };
+    }
+
+    fn disconnect(&mut self) {
+        if let Some(ref mut conn) = self.connection {
+            conn.ws_sender.close().unwrap();
+        }
+    }
+
+    fn event(&mut self, _ctx: &Context) {
+        if self.connection.is_none() {
+            return;
+        }
+        let connection = self.connection.as_mut().unwrap();
+
+        let mut messages = Vec::new();
+        while let Some(event) = connection.ws_receiver.try_recv() {
+            info!("Event: {event:?}");
+            match event {
+                WsEvent::Opened => info!("Connection opened."),
+                WsEvent::Message(message) => match message {
+                    WsMessage::Text(message) => match serde_json::from_str::<WiMessage>(&message) {
+                        Ok(message) => messages.push(message),
+                        Err(e) => error!("Failed to parse message: {e}"),
+                    },
+                    unknown => error!("Unknown WsMessage: {unknown:?}"),
+                },
+                WsEvent::Error(e) => error!("WS error: {e}"),
+                WsEvent::Closed => warn!("Connection closed."),
+            }
+        }
+        messages.iter().for_each(|m| self.handle_message(m));
+    }
+
+    fn handle_message(&mut self, message: &WiMessage) {
+        use WiMessageType::*;
+        info!("Handling message: {message}");
+        match message.message_type {
+            AddAddress => {}
+            RemoveAddress => {}
+            Velocity(v) => self.value = v,
+            FunctionPressed(f) => {
+                self.functions.insert(f);
+            }
+            FunctionReleased(f) => {
+                self.functions.remove(&f);
+            }
+            Direction(_) => {}
+            Time(_) => {}
+        }
+    }
 }
 
 impl Default for App {
     fn default() -> Self {
+        let mut functions = HashSet::new();
+        functions.insert(4);
         Self {
-            label: "Hello world".into(),
-            value: std::f32::consts::PI,
+            url: "ws://localhost:4000/ws".into(),
+            value: 0,
+            functions,
+            connection: None,
         }
     }
 }
@@ -21,60 +104,75 @@ impl eframe::App for App {
             // The top panel is often a good place for a menu bar:
 
             egui::menu::bar(ui, |ui| {
-                // NOTE: no File->Quit on web pages!
-                let is_web = cfg!(target_arch = "wasm32");
-                if !is_web {
-                    ui.menu_button("File", |ui| {
-                        if ui.button("Quit").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                    });
-                    ui.add_space(16.0);
-                }
-
+                ui.menu_button("Add...", |ui| ui.button("Throttle"));
                 egui::widgets::global_dark_light_mode_buttons(ui);
             });
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // The central panel the region left after adding TopPanel's and SidePanel's
-            ui.heading("eframe template");
-
-            ui.horizontal(|ui| {
-                ui.label("Write something: ");
-                ui.text_edit_singleline(&mut self.label);
-            });
-
-            ui.add(egui::Slider::new(&mut self.value, 0.0..=10.0).text("value"));
-            if ui.button("Increment").clicked() {
-                self.value += 1.0;
+            if self.connection.is_some() {
+                if ui.button("Disconnect").clicked() {
+                    info!("Disconnect");
+                    self.disconnect();
+                }
+            } else if ui.button("Connect").clicked() {
+                info!("Connect");
+                self.connect(ctx);
             }
 
-            ui.separator();
+            if let Some(ref mut connection) = self.connection {
+                if ui.button("Add 6733").clicked() {
+                    let message = WiMessage {
+                        message_type: WiMessageType::AddAddress,
+                        address: 6733,
+                    };
+                    let message = serde_json::to_string(&message).unwrap();
+                    connection.ws_sender.send(WsMessage::Text(message));
+                }
+            }
 
-            ui.add(egui::github_link_file!(
-                "https://github.com/emilk/eframe_template/blob/master/",
-                "Source code."
-            ));
+            ui.heading("Throttles");
+
+            let slider = egui::Slider::new(&mut self.value, 0..=126)
+                .text("Speed")
+                .integer()
+                .vertical();
+            if slider.ui(ui).changed() {
+                let message = WiMessage {
+                    message_type: WiMessageType::Velocity(self.value),
+                    address: 6733,
+                };
+                let message = serde_json::to_string(&message).unwrap();
+                if let Some(connection) = self.connection.as_mut() {
+                    connection.ws_sender.send(WsMessage::Text(message));
+                }
+            }
+
+            ui.horizontal_wrapped(|ui| {
+                for i in 0..=24 {
+                    let button = egui::Button::new(format!("F{i}"))
+                        .min_size(Vec2::new(100f32, 100f32))
+                        .selected(self.functions.contains(&i));
+                    if button.ui(ui).clicked() {
+                        if let Some(ref mut connection) = self.connection {
+                            let message = WiMessage {
+                                message_type: WiMessageType::FunctionPressed(i),
+                                address: 6733,
+                            };
+                            let message = WsMessage::Text(serde_json::to_string(&message).unwrap());
+                            connection.ws_sender.send(message);
+                        }
+                    }
+                }
+            });
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                powered_by_egui_and_eframe(ui);
                 egui::warn_if_debug_build(ui);
             });
         });
-    }
-}
 
-fn powered_by_egui_and_eframe(ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-        ui.label("Powered by ");
-        ui.hyperlink_to("egui", "https://github.com/emilk/egui");
-        ui.label(" and ");
-        ui.hyperlink_to(
-            "eframe",
-            "https://github.com/emilk/egui/tree/master/crates/eframe",
-        );
-        ui.label(".");
-    });
+        if self.connection.is_some() {
+            self.event(ctx);
+        }
+    }
 }
