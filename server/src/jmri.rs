@@ -1,3 +1,6 @@
+mod handle_message;
+pub use handle_message::handle_message;
+
 use crate::{FROM_JMRI, TO_JMRI};
 use futures::future::join3;
 use futures::{SinkExt, StreamExt};

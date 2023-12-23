@@ -1,4 +1,4 @@
-use crate::message::Address;
+use jmri_throttle_rs::message::Address;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Arc;

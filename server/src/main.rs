@@ -1,7 +1,6 @@
 #[forbid(unsafe_code)]
 mod client;
 mod jmri;
-mod message;
 mod ws;
 
 use crate::jmri::jmri_conn;

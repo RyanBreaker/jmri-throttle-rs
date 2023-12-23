@@ -1,7 +1,3 @@
-mod handle_message;
-
-pub use handle_message::handle_message;
-
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;

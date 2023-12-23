@@ -1,5 +1,5 @@
-use crate::message::WiMessage;
 use crate::TO_JMRI;
+use jmri_throttle_rs::message::WiMessage;
 use log::{debug, error};
 use uuid::Uuid;
 use warp::ws::Message;

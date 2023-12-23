@@ -1,8 +1,8 @@
 use crate::client::{Client, CLIENTS};
-use crate::message::{handle_message, WiMessage};
+use crate::jmri::handle_message;
 use crate::FROM_JMRI;
-
 use futures::{SinkExt, StreamExt};
+use jmri_throttle_rs::message::WiMessage;
 use log::Level::Debug;
 use log::{debug, error, info, log_enabled};
 use std::str::FromStr;
