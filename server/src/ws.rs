@@ -1,12 +1,11 @@
 use crate::client::{Client, CLIENTS};
 use crate::jmri::handle_message;
-use crate::FROM_JMRI;
+
 use futures::{SinkExt, StreamExt};
-use jmri_throttle_rs::message::WiMessage;
 use log::Level::Debug;
-use log::{debug, error, info, log_enabled};
-use std::str::FromStr;
+use log::{debug, error, log_enabled};
 use tokio::sync::mpsc;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use uuid::Uuid;
 use warp::ws::{Message, WebSocket};
 
@@ -18,9 +17,8 @@ pub async fn handle_connection(ws: WebSocket) {
     let (mut ws_tx, mut ws_rx) = ws.split();
 
     // Client channels
-    // TODO: Allow more channels for multiple clients, or just create a JMRI connections per client
-    let (to_client_tx, _to_client_rx) = mpsc::unbounded_channel::<Message>();
-    // let mut to_client_rx = UnboundedReceiverStream::new(to_client_rx);
+    let (to_client_tx, to_client_rx) = mpsc::unbounded_channel::<String>();
+    let mut to_client_rx = UnboundedReceiverStream::new(to_client_rx);
 
     CLIENTS
         .write()
@@ -51,16 +49,10 @@ pub async fn handle_connection(ws: WebSocket) {
     });
 
     let client_send_handle = tokio::spawn(async move {
-        while let Some(message) = FROM_JMRI.rx.write().await.next().await {
-            if let Ok(message) = WiMessage::from_str(&message) {
-                let message = serde_json::to_string(&message).unwrap();
-                ws_tx.send(Message::text(message)).await.map_err(|e| {
-                    error!("Error sending message: {e}");
-                    e
-                }).ok();
-            } else {
-                info!("Couldn't parse message: {message}");
-            }
+        while let Some(message) = to_client_rx.next().await {
+            if let Err(e) = ws_tx.send(Message::text(message)).await {
+                error!("Error sending to client '{id}': {e}");
+            };
         }
     });
 

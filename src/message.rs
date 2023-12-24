@@ -2,11 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-pub type Address = i16;
+pub type Address = i32;
 pub type Velocity = i16;
 pub type Function = u8;
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Direction {
     Reverse = 0,
     Forward = 1,
@@ -30,7 +30,7 @@ impl FromStr for Direction {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub enum WiMessageType {
     AddAddress,
     RemoveAddress,
@@ -74,7 +74,7 @@ impl FromStr for WiMessageType {
                 let dir = Direction::from_str(&nums).unwrap();
                 Ok(WiMessageType::Direction(dir))
             }
-            _ => Err("No action found".into()),
+            _ => Err(format!("No action found in str: {s}")),
         }
     }
 }

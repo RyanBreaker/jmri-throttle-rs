@@ -1,12 +1,16 @@
 mod handle_message;
 pub use handle_message::handle_message;
 
+use crate::client::CLIENTS;
 use crate::{FROM_JMRI, TO_JMRI};
-use futures::future::join3;
+
+use futures::future::join4;
 use futures::{SinkExt, StreamExt};
+use jmri_throttle_rs::message::WiMessage;
 use log::{debug, error, info};
 use std::env;
 use std::error::Error;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -58,9 +62,31 @@ pub async fn jmri_conn(notify: Arc<Notify>) -> Result<(), Box<dyn Error>> {
                 continue;
             }
 
-            debug!("Message from JMRI (len={}): {line}", line.len());
+            // debug!("Message from JMRI (len={}): {line}", line.len());
             if let Err(e) = FROM_JMRI.tx.read().await.send(line.into()) {
                 error!("Error sending message from JMRI: {e}");
+            }
+        }
+    });
+
+    // TODO: Is there a better place for this?
+    let client_handle = tokio::spawn(async move {
+        while let Some(line) = FROM_JMRI.rx.write().await.next().await {
+            match WiMessage::from_str(&line) {
+                Ok(message) => {
+                    let clients = CLIENTS.read().await;
+                    if let Some((_uuid, client)) = clients
+                        .iter()
+                        .find(|(_uuid, client)| client.addresses.contains(&message.address))
+                    {
+                        let message = serde_json::to_string(&message).unwrap();
+                        info!("Sending message to client: {message}");
+                        client.sender.send(message).unwrap();
+                    } else {
+                        info!("Couldn't find client for address: {}", message.address)
+                    }
+                }
+                Err(e) => error!("Error parsing message: {e}"),
             }
         }
     });
@@ -81,7 +107,7 @@ pub async fn jmri_conn(notify: Arc<Notify>) -> Result<(), Box<dyn Error>> {
         }
     });
 
-    let _ = join3(read_handle, write_handle, heartbeat_handle).await;
+    let _ = join4(read_handle, write_handle, heartbeat_handle, client_handle).await;
 
     Ok(())
 }

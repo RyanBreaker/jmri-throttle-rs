@@ -38,6 +38,7 @@ impl App {
     fn disconnect(&mut self) {
         if let Some(ref mut conn) = self.connection {
             conn.ws_sender.close().unwrap();
+            self.connection = None;
         }
     }
 
@@ -87,12 +88,10 @@ impl App {
 
 impl Default for App {
     fn default() -> Self {
-        let mut functions = HashSet::new();
-        functions.insert(4);
         Self {
             url: "ws://localhost:4000/ws".into(),
             value: 0,
-            functions,
+            functions: HashSet::new(),
             connection: None,
         }
     }
