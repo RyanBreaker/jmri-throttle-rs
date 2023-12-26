@@ -6,9 +6,10 @@ pub type Address = i32;
 pub type Velocity = i16;
 pub type Function = u8;
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub enum Direction {
     Reverse = 0,
+    #[default]
     Forward = 1,
 }
 
@@ -30,7 +31,7 @@ impl FromStr for Direction {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Copy, Clone)]
 pub enum WiMessageType {
     AddAddress,
     RemoveAddress,
@@ -97,10 +98,19 @@ impl Display for WiMessageType {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 pub struct WiMessage {
     pub message_type: WiMessageType,
     pub address: Address,
+}
+
+impl WiMessage {
+    pub fn new(address: Address, message_type: WiMessageType) -> Self {
+        Self {
+            address,
+            message_type,
+        }
+    }
 }
 
 impl Display for WiMessage {
@@ -129,6 +139,11 @@ impl FromStr for WiMessage {
             Some(WiMessageType::RemoveAddress)
         } else if address.contains('+') {
             Some(WiMessageType::AddAddress)
+        } else if s.starts_with("PFT") {
+            let time = s.split("<;>").next().unwrap();
+            let time: String = time.chars().filter(|c| c.is_numeric()).collect();
+            let time: i64 = time.parse().unwrap();
+            Some(WiMessageType::Time(time))
         } else {
             None
         };

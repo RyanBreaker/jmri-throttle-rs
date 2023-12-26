@@ -6,7 +6,7 @@ use crate::{FROM_JMRI, TO_JMRI};
 
 use futures::future::join4;
 use futures::{SinkExt, StreamExt};
-use jmri_throttle_rs::message::WiMessage;
+use jmri_throttle_rs::message::{WiMessage, WiMessageType};
 use log::{debug, error, info};
 use std::env;
 use std::error::Error;
@@ -75,7 +75,12 @@ pub async fn jmri_conn(notify: Arc<Notify>) -> Result<(), Box<dyn Error>> {
             match WiMessage::from_str(&line) {
                 Ok(message) => {
                     let clients = CLIENTS.read().await;
-                    if let Some((_uuid, client)) = clients
+                    if let WiMessageType::Time(_) = message.message_type {
+                        clients.values().for_each(|client| {
+                            let message = serde_json::to_string(&message).unwrap();
+                            client.sender.send(message).unwrap();
+                        });
+                    } else if let Some((_uuid, client)) = clients
                         .iter()
                         .find(|(_uuid, client)| client.addresses.contains(&message.address))
                     {

@@ -15,7 +15,7 @@ fn main() {
             .start(
                 "canvas", // hardcode it
                 web_options,
-                Box::new(|_cc| Box::new(app::App::default())),
+                Box::new(|cc| Box::new(app::App::new(cc))),
             )
             .await
             .expect("failed to start eframe");
