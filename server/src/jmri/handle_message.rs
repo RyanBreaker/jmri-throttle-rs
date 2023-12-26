@@ -1,5 +1,6 @@
 use crate::client::CLIENTS;
 use crate::TO_JMRI;
+use jmri_throttle_rs::message::WiMessageType::RemoveAddress;
 use jmri_throttle_rs::message::{WiMessage, WiMessageType};
 use log::{debug, error};
 use uuid::Uuid;
@@ -26,6 +27,12 @@ pub async fn handle_message(id: Uuid, message: Message) {
         }
     } else if message.message_type == WiMessageType::RemoveAddress {
         if let Some(client) = CLIENTS.write().await.get_mut(&id) {
+            client
+                .sender
+                .send(
+                    serde_json::to_string(&WiMessage::new(message.address, RemoveAddress)).unwrap(),
+                )
+                .unwrap();
             client.addresses.remove(&message.address);
         }
     }

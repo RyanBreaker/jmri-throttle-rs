@@ -2,7 +2,7 @@ mod handle_message;
 pub use handle_message::handle_message;
 
 use crate::client::CLIENTS;
-use crate::{FROM_JMRI, TO_JMRI};
+use crate::{FROM_JMRI, TIME, TO_JMRI};
 
 use futures::future::join4;
 use futures::{SinkExt, StreamExt};
@@ -75,20 +75,21 @@ pub async fn jmri_conn(notify: Arc<Notify>) -> Result<(), Box<dyn Error>> {
             match WiMessage::from_str(&line) {
                 Ok(message) => {
                     let clients = CLIENTS.read().await;
-                    if let WiMessageType::Time(_) = message.message_type {
+                    if let WiMessageType::Time(t) = message.message_type {
+                        *TIME.write().await = t;
                         clients.values().for_each(|client| {
                             let message = serde_json::to_string(&message).unwrap();
                             client.sender.send(message).unwrap();
                         });
-                    } else if let Some((_uuid, client)) = clients
-                        .iter()
-                        .find(|(_uuid, client)| client.addresses.contains(&message.address))
-                    {
-                        let message = serde_json::to_string(&message).unwrap();
-                        info!("Sending message to client: {message}");
-                        client.sender.send(message).unwrap();
                     } else {
-                        info!("Couldn't find client for address: {}", message.address)
+                        clients
+                            .iter()
+                            .filter(|(_uuid, client)| client.addresses.contains(&message.address))
+                            .for_each(|(_uuid, client)| {
+                                let message = serde_json::to_string(&message).unwrap();
+                                info!("Sending message to client: {message}");
+                                client.sender.send(message).unwrap();
+                            });
                     }
                 }
                 Err(e) => error!("Error parsing message: {e}"),

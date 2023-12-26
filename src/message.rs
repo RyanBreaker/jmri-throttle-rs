@@ -60,7 +60,12 @@ impl FromStr for WiMessageType {
         let nums: String = chars.filter(|c| c.is_numeric()).collect();
 
         match first {
-            'V' => Ok(WiMessageType::Velocity(nums.parse().unwrap())),
+            'V' => {
+                let negative = if s.contains('-') { -1 } else { 1 };
+                Ok(WiMessageType::Velocity(
+                    negative * nums.parse::<i16>().unwrap(),
+                ))
+            }
             'F' => {
                 let mut nums = nums.chars();
                 let is_pressed = nums.next().unwrap_or('0') == '1';
@@ -115,13 +120,14 @@ impl WiMessage {
 
 impl Display for WiMessage {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let address_type = if self.address < 128 { 'S' } else { 'L' };
         let s = if self.message_type.is_address() {
             format!(
-                "MT{}L{}<;>L{}",
+                "MT{}{address_type}{}<;>{address_type}{}",
                 self.message_type, self.address, self.address
             )
         } else {
-            format!("MTAL{}<;>{}", self.address, self.message_type)
+            format!("MTA{address_type}{}<;>{}", self.address, self.message_type)
         };
 
         f.write_str(&s)
@@ -143,7 +149,10 @@ impl FromStr for WiMessage {
             let time = s.split("<;>").next().unwrap();
             let time: String = time.chars().filter(|c| c.is_numeric()).collect();
             let time: i64 = time.parse().unwrap();
-            Some(WiMessageType::Time(time))
+            return Ok(WiMessage {
+                address: 0,
+                message_type: WiMessageType::Time(time),
+            });
         } else {
             None
         };

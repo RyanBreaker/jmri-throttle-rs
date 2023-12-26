@@ -24,18 +24,25 @@ impl WsConnection {
     }
 }
 
+#[derive(Default, Debug)]
+struct State {
+    pub show_connect: bool,
+    pub show_new_throttle: bool,
+    pub new_address: String,
+    pub connecting: bool,
+}
+
 pub struct App {
     uuid: Uuid,
     url: String,
     throttles: HashMap<Address, Throttle>,
     connection: Option<WsConnection>,
     time: i64,
-    show_connect: bool,
-    show_new_throttle: bool,
-    new_address: String,
+    state: State,
 }
 
 impl App {
+    #[allow(dead_code)]
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut uuid: Option<Uuid> = None;
         if let Some(storage) = cc.storage {
@@ -45,22 +52,19 @@ impl App {
         }
         Self {
             uuid: uuid.unwrap_or_else(Uuid::new_v4),
-            url: "ws://localhost:4000".to_string(),
+            url: "localhost:4000/ws".to_string(),
             connection: None,
             time: 0,
             throttles: Default::default(),
-            show_connect: false,
-            show_new_throttle: false,
-            new_address: String::new(),
+            state: State::default(),
         }
     }
 
     fn connect(&mut self, ctx: &Context) {
         let ctx = ctx.clone();
         let wakeup = move || ctx.request_repaint();
-        match ewebsock::connect_with_wakeup("ws://localhost:4000/ws", wakeup) {
+        match ewebsock::connect_with_wakeup(format!("ws://{}", self.url), wakeup) {
             Ok((ws_sender, ws_receiver)) => {
-                info!("Connected!");
                 self.connection = Some(WsConnection {
                     ws_sender,
                     ws_receiver,
@@ -73,7 +77,10 @@ impl App {
     }
 
     fn disconnect(&mut self) {
+        self.throttles.clear();
         self.connection = None;
+        self.state.connecting = false;
+        self.state.show_connect = false;
     }
 
     fn handle_messages(&mut self, _ctx: &Context) {
@@ -81,12 +88,17 @@ impl App {
             return;
         }
         let connection = self.connection.as_mut().unwrap();
+        let mut closed = false;
 
         let mut messages = Vec::new();
         while let Some(event) = connection.ws_receiver.try_recv() {
             info!("Event: {event:?}");
             match event {
-                WsEvent::Opened => info!("Connection opened."),
+                WsEvent::Opened => {
+                    info!("Connection opened");
+                    self.state.connecting = false;
+                    self.state.show_connect = false;
+                }
                 WsEvent::Message(message) => match message {
                     WsMessage::Text(message) => match serde_json::from_str::<WiMessage>(&message) {
                         Ok(message) => messages.push(message),
@@ -95,15 +107,21 @@ impl App {
                     unknown => error!("Unknown WsMessage: {unknown:?}"),
                 },
                 WsEvent::Error(e) => error!("WS error: {e}"),
-                WsEvent::Closed => warn!("Connection closed."),
+                WsEvent::Closed => {
+                    warn!("Connection closed.");
+                    closed = true;
+                    break;
+                }
             }
+        }
+        if closed {
+            self.disconnect();
         }
         messages.iter().for_each(|m| self.handle_message(m));
     }
 
     fn handle_message(&mut self, message: &WiMessage) {
         use WiMessageType::*;
-        info!("Handling message: {message}");
         if let Time(t) = message.message_type {
             self.time = t;
             return;
@@ -130,25 +148,29 @@ impl App {
     fn menu_bar(&mut self, ui: &mut Ui) {
         egui::menu::bar(ui, |ui| {
             egui::widgets::global_dark_light_mode_switch(ui);
+
             if self.connection.is_none() {
                 if ui.button("Connect").clicked() {
-                    self.show_connect = true;
+                    self.state.show_connect = true;
                 }
             } else if ui.button("Disconnect").clicked() {
                 self.disconnect();
             }
-            if self.connection.is_some() {
+
+            if self.connection.is_some() && !self.state.connecting {
                 ui.separator();
                 if ui
-                    .add(Button::new("New Throttle").selected(self.show_new_throttle))
+                    .add(Button::new("New Throttle").selected(self.state.show_new_throttle))
                     .clicked()
                 {
-                    self.show_new_throttle = !self.show_new_throttle;
+                    self.state.show_new_throttle = !self.state.show_new_throttle;
                 }
             }
 
-            let dt = NaiveDateTime::from_timestamp_opt(self.time, 0).unwrap();
-            ui.label(dt.format("%H:%M:%S").to_string());
+            ui.with_layout(Layout::right_to_left(Align::TOP), |ui| {
+                let dt = NaiveDateTime::from_timestamp_opt(self.time, 0).unwrap();
+                ui.label(format!("Fast Clock: {}", dt.format("%l:%M %p")));
+            });
         });
     }
 }
@@ -158,7 +180,7 @@ impl eframe::App for App {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| self.menu_bar(ui));
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            if self.show_connect {
+            if self.state.show_connect {
                 Window::new("Connect")
                     .max_width(250f32)
                     .collapsible(false)
@@ -166,29 +188,34 @@ impl eframe::App for App {
                     .show(ctx, |ui| {
                         Grid::new("ConnectGrid").num_columns(2).show(ui, |ui| {
                             ui.label("URL:");
-                            ui.text_edit_singleline(&mut self.url);
+                            ui.add_enabled(
+                                !self.state.connecting,
+                                TextEdit::singleline(&mut self.url),
+                            );
                         });
                         ui.add_space(15.0);
                         ui.with_layout(Layout::right_to_left(Align::TOP), |ui| {
-                            if ui.button("Connect").clicked() {
+                            if self.state.connecting {
+                                ui.spinner();
+                            } else if ui.button("Connect").clicked() {
+                                self.state.connecting = true;
                                 self.connect(ctx);
-                                self.show_connect = false;
                             }
                             if ui.button("Cancel").clicked() {
-                                self.show_connect = false;
+                                self.disconnect();
                             }
                         });
                     });
-            } else if self.show_new_throttle {
+            } else if self.state.show_new_throttle {
                 Window::new("New Throttle")
                     .collapsible(false)
                     .resizable(false)
                     .show(ctx, |ui| {
                         ui.label("Address");
-                        TextEdit::singleline(&mut self.new_address).show(ui);
+                        TextEdit::singleline(&mut self.state.new_address).show(ui);
                         ui.with_layout(Layout::right_to_left(Align::TOP), |ui| {
                             if ui.button("Add").clicked() {
-                                if let Ok(address) = self.new_address.parse::<Address>() {
+                                if let Ok(address) = self.state.new_address.parse::<Address>() {
                                     let sender = &mut self.connection.as_mut().unwrap().ws_sender;
                                     let message =
                                         WiMessage::new(address, WiMessageType::AddAddress);
@@ -198,29 +225,18 @@ impl eframe::App for App {
                                     // TODO: Confirm to add when we get a response from the server
                                     self.throttles.insert(address, Throttle::new(address));
 
-                                    self.show_new_throttle = false;
-                                    self.new_address = String::new();
+                                    self.state.show_new_throttle = false;
+                                    self.state.new_address = String::new();
                                 } else {
-                                    info!("Cannot parse address: {}", self.new_address);
+                                    info!("Cannot parse address: {}", self.state.new_address);
                                 }
                             }
                             if ui.button("Cancel").clicked() {
-                                self.new_address = String::default();
-                                self.show_new_throttle = false;
+                                self.state.new_address = String::default();
+                                self.state.show_new_throttle = false;
                             }
                         });
                     });
-            }
-
-            if let Some(ref mut connection) = self.connection {
-                if ui.button("Add 6733").clicked() {
-                    let message = WiMessage {
-                        message_type: WiMessageType::AddAddress,
-                        address: 6733,
-                    };
-                    let message = serde_json::to_string(&message).unwrap();
-                    connection.ws_sender.send(WsMessage::Text(message));
-                }
             }
 
             ui.heading("Throttles");
@@ -228,7 +244,8 @@ impl eframe::App for App {
             if let Some(connection) = self.connection.borrow_mut() {
                 for throttle in self.throttles.values_mut() {
                     Window::new(throttle.address.to_string())
-                        .max_width(600f32)
+                        .default_width(600f32)
+                        .resizable(false)
                         .show(ctx, |ui| {
                             throttle.draw(connection, ui);
                         });

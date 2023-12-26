@@ -33,6 +33,8 @@ const fn make_chan() -> Lazy<JmriChannel> {
     })
 }
 
+static TIME: Lazy<RwLock<i64>> = Lazy::new(|| RwLock::new(0));
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     pretty_env_logger::init();

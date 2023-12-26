@@ -1,7 +1,9 @@
 use crate::client::{Client, CLIENTS};
 use crate::jmri::handle_message;
+use crate::{TIME, TO_JMRI};
 
 use futures::{SinkExt, StreamExt};
+use jmri_throttle_rs::message::{WiMessage, WiMessageType};
 use log::Level::Debug;
 use log::{debug, error, log_enabled};
 use tokio::sync::mpsc;
@@ -49,6 +51,11 @@ pub async fn handle_connection(ws: WebSocket) {
     });
 
     let client_send_handle = tokio::spawn(async move {
+        let time_message =
+            serde_json::to_string(&WiMessage::new(0, WiMessageType::Time(*TIME.read().await)))
+                .unwrap();
+        ws_tx.send(Message::text(time_message)).await.unwrap();
+
         while let Some(message) = to_client_rx.next().await {
             if let Err(e) = ws_tx.send(Message::text(message)).await {
                 error!("Error sending to client '{id}': {e}");
@@ -56,9 +63,15 @@ pub async fn handle_connection(ws: WebSocket) {
         }
     });
 
-    client_receive_handle.await.unwrap();
+    client_receive_handle.await.ok();
     drop(client_send_handle);
 
-    CLIENTS.write().await.remove(&id);
+    if let Some(client) = CLIENTS.write().await.remove(&id) {
+        let mut messages: Vec<String> = Vec::new();
+        for address in client.addresses {
+            messages.push(WiMessage::new(address, WiMessageType::RemoveAddress).to_string())
+        }
+        TO_JMRI.tx.write().await.send(messages.join("\n")).unwrap();
+    }
     debug!("Removed client '{id}'");
 }
