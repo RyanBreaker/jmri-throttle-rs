@@ -8,6 +8,7 @@ use futures::future::join4;
 use futures::{SinkExt, StreamExt};
 use jmri_throttle_rs::message::{WiMessage, WiMessageType};
 use log::{debug, error, info};
+use regex::Regex;
 use std::env;
 use std::error::Error;
 use std::str::FromStr;
@@ -71,7 +72,11 @@ pub async fn jmri_conn(notify: Arc<Notify>) -> Result<(), Box<dyn Error>> {
 
     // TODO: Is there a better place for this?
     let client_handle = tokio::spawn(async move {
+        let reg = Regex::new("^(PTA|PTL|RCD|PTT|PRT|PRL|RL)").unwrap();
         while let Some(line) = FROM_JMRI.rx.write().await.next().await {
+            if reg.is_match(&line) {
+                continue;
+            }
             match WiMessage::from_str(&line) {
                 Ok(message) => {
                     let clients = CLIENTS.read().await;

@@ -211,7 +211,7 @@ impl eframe::App for App {
                     .collapsible(false)
                     .resizable(false)
                     .show(ctx, |ui| {
-                        ui.label("Address");
+                        ui.label("Address:");
                         TextEdit::singleline(&mut self.state.new_address).show(ui);
                         ui.with_layout(Layout::right_to_left(Align::TOP), |ui| {
                             if ui.button("Add").clicked() {
@@ -244,8 +244,7 @@ impl eframe::App for App {
             if let Some(connection) = self.connection.borrow_mut() {
                 for throttle in self.throttles.values_mut() {
                     Window::new(throttle.address.to_string())
-                        .default_width(600f32)
-                        .resizable(false)
+                        .fixed_size([340.0, 400.0])
                         .show(ctx, |ui| {
                             throttle.draw(connection, ui);
                         });

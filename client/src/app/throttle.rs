@@ -29,13 +29,14 @@ impl Throttle {
 
     fn adjust_velocity(&mut self, delta: Velocity, connection: &mut WsConnection) {
         self.velocity += delta;
+        self.velocity = self.velocity.clamp(0, 126);
         connection.send(self.message(WiMessageType::Velocity(self.velocity)));
     }
 
     pub fn draw(&mut self, connection: &mut WsConnection, ui: &mut Ui) {
-        ui.add_space(15.0);
+        ui.add_space(30.0);
         ui.horizontal_top(|ui| {
-            ui.add_space(15.0);
+            // ui.add_space(15.0);
             if ui
                 .add(
                     egui::Slider::new(&mut self.velocity, 0..=126)
@@ -51,20 +52,20 @@ impl Throttle {
             ui.add_space(15.0);
             egui::Grid::new(format!("{}ThrottleColumns", self.address))
                 .num_columns(2)
-                .spacing([10.0, 15.0])
+                .spacing([10.0, 10.0])
                 .show(ui, |ui| {
-                    if ui.add(Button::new("+1").min_size(BUTTON_SIZE)).clicked() {
-                        self.adjust_velocity(1, connection);
-                    }
                     if ui.add(Button::new("-1").min_size(BUTTON_SIZE)).clicked() {
                         self.adjust_velocity(-1, connection);
                     }
-                    ui.end_row();
-                    if ui.add(Button::new("+10").min_size(BUTTON_SIZE)).clicked() {
-                        self.adjust_velocity(10, connection);
+                    if ui.add(Button::new("+1").min_size(BUTTON_SIZE)).clicked() {
+                        self.adjust_velocity(1, connection);
                     }
+                    ui.end_row();
                     if ui.add(Button::new("-10").min_size(BUTTON_SIZE)).clicked() {
                         self.adjust_velocity(-10, connection);
+                    }
+                    if ui.add(Button::new("+10").min_size(BUTTON_SIZE)).clicked() {
+                        self.adjust_velocity(10, connection);
                     }
                     ui.end_row();
                     if ui
@@ -92,19 +93,18 @@ impl Throttle {
                     ui.end_row();
                 });
 
-                ui.label("Direction:");
-                    if ui
-                        .selectable_value(&mut self.direction, Direction::Reverse, "Reverse")
-                        .clicked()
-                    {
-                        connection.send(self.message(WiMessageType::Direction(Direction::Reverse)));
-                    }
-                    if ui
-                        .selectable_value(&mut self.direction, Direction::Forward, "Forward")
-                        .clicked()
-                    {
-                        connection.send(self.message(WiMessageType::Direction(Direction::Forward)));
-                    }
+            if ui
+                .selectable_value(&mut self.direction, Direction::Reverse, "Reverse")
+                .clicked()
+            {
+                connection.send(self.message(WiMessageType::Direction(Direction::Reverse)));
+            }
+            if ui
+                .selectable_value(&mut self.direction, Direction::Forward, "Forward")
+                .clicked()
+            {
+                connection.send(self.message(WiMessageType::Direction(Direction::Forward)));
+            }
         });
 
         ui.separator();

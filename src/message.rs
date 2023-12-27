@@ -160,7 +160,7 @@ impl FromStr for WiMessage {
         let address: String = address.chars().filter(|c| c.is_numeric()).collect();
         let address: Address = address
             .parse()
-            .map_err(|e| format!("Couldn't translate address: {e}"))?;
+            .map_err(|e| format!("Couldn't translate address: {e}, Message: {s}"))?;
 
         if let Some(message_type) = address_action {
             return Ok(WiMessage {
@@ -211,12 +211,12 @@ mod tests {
             message_type: WiMessageType::AddAddress,
             address: 5,
         };
-        assert_eq!(format!("{}", wi_message), "MT+L5<;>L5");
+        assert_eq!(format!("{}", wi_message), "MT+S5<;>S5");
         let wi_message = WiMessage {
             message_type: WiMessageType::FunctionReleased(10),
-            address: 6,
+            address: 128,
         };
-        assert_eq!(format!("{}", wi_message), "MTAL6<;>F010");
+        assert_eq!(format!("{}", wi_message), "MTAL128<;>F010");
     }
 
     #[test]
